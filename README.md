@@ -97,3 +97,27 @@ npm run test:e2e
 
 The end-to-end suite uploads MusicXML, PNG, and PDF fixtures through the real
 browser and backend. The first OMR run can be slower while models initialize.
+
+## GitHub Pages
+
+The frontend is deployed automatically by
+`.github/workflows/pages.yml` when changes reach `main`.
+
+GitHub Pages hosts only the static React frontend. The FastAPI backend must
+run separately, for example on a server or container platform. Before the
+first deployment, add a repository variable named `VITE_API_BASE_URL` in
+**Settings -> Secrets and variables -> Actions -> Variables** and set it to
+the public backend origin, such as `https://api.example.com` without a
+trailing slash.
+
+The published site is:
+
+```text
+https://leonlzd120000.github.io/AI-piano/
+```
+
+The backend accepts `CORS_ORIGINS` as a comma-separated environment variable.
+If it is not set, the Pages origin above and the local Vite origins are
+allowed by default. `SAMPLE_FILE` can point to the PDF loaded by the sample
+button; deployments fall back to the bundled scan fixture when the configured
+file does not exist.

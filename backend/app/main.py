@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -15,7 +16,18 @@ from .omr import DEFAULT_OMR_PYTHON
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SAMPLE_FILE = Path("/Users/lee/Downloads/1 卖课/2025 8 月课程整理/114 夜的钢琴曲五39B/夜的钢琴曲5/6夜的钢琴曲5.pdf")
+LOCAL_SAMPLE_FILE = Path(
+    "/Users/lee/Downloads/1 卖课/2025 8 月课程整理/"
+    "114 夜的钢琴曲五39B/夜的钢琴曲5/6夜的钢琴曲5.pdf"
+)
+configured_sample_file = Path(
+    os.getenv("SAMPLE_FILE", str(LOCAL_SAMPLE_FILE))
+).expanduser()
+SAMPLE_FILE = (
+    configured_sample_file
+    if configured_sample_file.exists()
+    else BASE_DIR / "sample_scores" / "c-major-scan.pdf"
+)
 RUN_OUTPUT_DIR = Path("/tmp/ai-piano-runs")
 RUN_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -24,12 +36,20 @@ app = FastAPI(
     version="0.1.0",
 )
 
+configured_cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+cors_origins = configured_cors_origins or [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://leonlzd120000.github.io",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -70,7 +90,7 @@ def sample_score() -> FileResponse:
     return FileResponse(
         SAMPLE_FILE,
         media_type="application/pdf",
-        filename="6夜的钢琴曲5.pdf",
+        filename=SAMPLE_FILE.name,
     )
 
 

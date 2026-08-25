@@ -1,5 +1,13 @@
 import type { AnnotationOptions, AnnotationResult, WorkflowStep } from "./types";
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+
+export function apiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE_URL}${normalizedPath}`;
+}
+
 interface ErrorDetail {
   message?: string;
   steps?: WorkflowStep[];
@@ -44,7 +52,7 @@ export async function annotateScore(
   formData.append("label_style", options.labelStyle);
   formData.append("show_accidentals", String(options.showAccidentals));
 
-  const response = await fetch("/api/annotate", {
+  const response = await fetch(apiUrl("/api/annotate"), {
     method: "POST",
     body: formData
   });
@@ -53,11 +61,17 @@ export async function annotateScore(
     throw await parseError(response);
   }
 
-  return (await response.json()) as AnnotationResult;
+  const result = (await response.json()) as AnnotationResult;
+  return {
+    ...result,
+    annotated_pdf_url: result.annotated_pdf_url
+      ? apiUrl(result.annotated_pdf_url)
+      : null
+  };
 }
 
 export async function loadSampleFile(): Promise<File> {
-  const response = await fetch("/api/sample");
+  const response = await fetch(apiUrl("/api/sample"));
   if (!response.ok) {
     throw await parseError(response);
   }
