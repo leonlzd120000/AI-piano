@@ -1,0 +1,17 @@
+.DS_Store
+.pytest_cache/
+**/__pycache__/
+*.py[cod]
+backend/.venv/
+backend/.omr-venv/
+backend/**/__pycache__/
+backend/.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/test-results/
+frontend/playwright-report/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+design/*.png
