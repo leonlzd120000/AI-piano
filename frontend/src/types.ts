@@ -40,6 +40,7 @@ export interface AnnotationResult {
   summary: ScoreSummary;
   steps: WorkflowStep[];
   annotated_pdf_url: string | null;
+  model_id: string;
   omr: {
     engine: string;
     pages: number;
@@ -48,6 +49,22 @@ export interface AnnotationResult {
     pdf_labels_placed?: number;
     cleaned_pixels?: number;
   } | null;
+}
+
+export interface ModelDefinition {
+  id: string;
+  provider: string;
+  provider_label: string;
+  name: string;
+  description: string;
+  status: "stable" | "preview";
+  configured: boolean;
+}
+
+export interface ModelCatalog {
+  active_model_id: string;
+  google_configured: boolean;
+  models: ModelDefinition[];
 }
 
 export interface AnnotationOptions {

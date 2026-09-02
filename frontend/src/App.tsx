@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AgentApiError, annotateScore, loadSampleFile } from "./api";
+import {
+  AgentApiError,
+  annotateScore,
+  fetchModels,
+  loadSampleFile
+} from "./api";
 import { Header } from "./components/Header";
+import { ModelManager } from "./components/ModelManager";
 import { RunPanel } from "./components/RunPanel";
 import { ScorePreview } from "./components/ScorePreview";
 import { UploadPanel } from "./components/UploadPanel";
@@ -13,6 +19,7 @@ import {
 import type {
   AnnotationOptions,
   AnnotationResult,
+  ModelCatalog,
   WorkflowStep
 } from "./types";
 
@@ -31,6 +38,8 @@ export default function App() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failedSteps, setFailedSteps] = useState<WorkflowStep[]>([]);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog | null>(null);
+  const [modelManagerOpen, setModelManagerOpen] = useState(false);
 
   const runAgent = useCallback(
     async (targetFile: File, targetOptions: AnnotationOptions) => {
@@ -39,7 +48,11 @@ export default function App() {
       setFailedSteps([]);
 
       try {
-        const nextResult = await annotateScore(targetFile, targetOptions);
+        const nextResult = await annotateScore(
+          targetFile,
+          targetOptions,
+          modelCatalog?.active_model_id
+        );
         setResult(nextResult);
       } catch (caught) {
         setResult(null);
@@ -53,7 +66,7 @@ export default function App() {
         setProcessing(false);
       }
     },
-    []
+    [modelCatalog?.active_model_id]
   );
 
   const loadSample = useCallback(async () => {
@@ -75,6 +88,18 @@ export default function App() {
     initialized.current = true;
     void loadSample();
   }, [loadSample]);
+
+  useEffect(() => {
+    void fetchModels()
+      .then(setModelCatalog)
+      .catch(() => {
+        setModelCatalog({
+          active_model_id: "deterministic-score-parser",
+          google_configured: false,
+          models: []
+        });
+      });
+  }, []);
 
   const handleFileChange = (nextFile: File) => {
     setFile(nextFile);
@@ -111,6 +136,12 @@ export default function App() {
         onDownload={() => {
           void handleDownload();
         }}
+        modelName={
+          modelCatalog?.models.find(
+            (model) => model.id === modelCatalog.active_model_id
+          )?.name ?? "确定性解析"
+        }
+        onManageModels={() => setModelManagerOpen(true)}
       />
       <main className="workspace">
         <UploadPanel
@@ -171,6 +202,16 @@ export default function App() {
           expectsOmr={OMR_FILE_PATTERN.test(file?.name ?? "")}
         />
       </main>
+      {modelCatalog && modelManagerOpen ? (
+        <ModelManager
+          catalog={modelCatalog}
+          onClose={() => setModelManagerOpen(false)}
+          onChanged={(nextCatalog) => {
+            setModelCatalog(nextCatalog);
+            setModelManagerOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

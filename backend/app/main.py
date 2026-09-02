@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from .agent import score_agent
+from .model_manager import configure_model, list_models, test_model
 from .musicxml import AnnotationOptions, MAX_UPLOAD_BYTES
 from .omr import DEFAULT_OMR_PYTHON
 
@@ -75,6 +76,18 @@ class AnnotationResponse(BaseModel):
     steps: list[WorkflowStep]
     omr: dict | None = None
     annotated_pdf_url: str | None = None
+    model_id: str
+
+
+class ModelConfigRequest(BaseModel):
+    model_id: str
+    api_key: str | None = None
+
+
+class ModelTestRequest(BaseModel):
+    model_id: str
+    prompt: str
+    api_key: str | None = None
 
 
 @app.get("/api/health")
@@ -83,6 +96,32 @@ def health() -> dict[str, str]:
         "status": "ok",
         "omr": "ready" if DEFAULT_OMR_PYTHON.exists() else "missing",
     }
+
+
+@app.get("/api/models")
+def models() -> dict:
+    return list_models()
+
+
+@app.post("/api/models/config")
+def configure_models(request: ModelConfigRequest) -> dict:
+    try:
+        return configure_model(request.model_id, request.api_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/models/test")
+async def test_models(request: ModelTestRequest) -> dict:
+    try:
+        return await run_in_threadpool(
+            test_model,
+            request.model_id,
+            request.prompt,
+            request.api_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/sample")
@@ -115,6 +154,7 @@ async def annotate_score(
     file: UploadFile = File(...),
     label_style: str = Form("letter"),
     show_accidentals: bool = Form(True),
+    model_id: str | None = Form(None),
 ) -> AnnotationResponse:
     payload = await file.read(MAX_UPLOAD_BYTES + 1)
     initial_state = {
@@ -124,6 +164,7 @@ async def annotate_score(
             label_style=label_style,
             show_accidentals=show_accidentals,
         ),
+        "model_id": model_id or "",
         "steps": [],
         "errors": [],
     }
@@ -156,4 +197,5 @@ async def annotate_score(
         steps=result["steps"],
         omr=result.get("omr_metadata"),
         annotated_pdf_url=annotated_pdf_url,
+        model_id=result.get("model_id", "deterministic-score-parser"),
     )

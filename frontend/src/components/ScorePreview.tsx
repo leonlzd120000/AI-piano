@@ -1,4 +1,11 @@
-import { FileMusic, Hand, LoaderCircle, Play, Square } from "lucide-react";
+import {
+  FileMusic,
+  Hand,
+  LoaderCircle,
+  Play,
+  Repeat,
+  Square
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ScoreNote } from "../types";
 import { PdfCanvasPreview } from "./PdfCanvasPreview";
@@ -21,7 +28,9 @@ const NOTE_COLORS: Record<string, string> = {
 };
 
 type PracticeHand = "right" | "left";
+type RangeHand = PracticeHand | "both";
 type PlaybackMode = "single" | "range";
+type PlaybackSpeed = 0.3 | 0.5 | 0.7 | 1;
 
 const PRACTICE_COLORS: Record<PracticeHand, string> = {
   right: "#f59e0b",
@@ -140,6 +149,10 @@ function isNoteForHand(note: ScoreNote, hand: PracticeHand): boolean {
   if (note.staff === "2") return hand === "left";
   if (note.voice === "5") return hand === "left";
   return hand === "right";
+}
+
+function isNoteForRangeHand(note: ScoreNote, hand: RangeHand): boolean {
+  return hand === "both" || isNoteForHand(note, hand);
 }
 
 function handForNote(note: ScoreNote): PracticeHand {
@@ -419,9 +432,12 @@ export function ScorePreview({
   );
   const [selectedMeasure, setSelectedMeasure] = useState("");
   const [selectedHand, setSelectedHand] = useState<PracticeHand>("right");
-  const [rangeHand, setRangeHand] = useState<PracticeHand>("right");
+  const [rangeHand, setRangeHand] = useState<RangeHand>("right");
   const [rangeStartMeasure, setRangeStartMeasure] = useState("");
   const [rangeEndMeasure, setRangeEndMeasure] = useState("");
+  const [rangePlaybackSpeed, setRangePlaybackSpeed] =
+    useState<PlaybackSpeed>(1);
+  const [rangeLoopEnabled, setRangeLoopEnabled] = useState(false);
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode | null>(null);
   const [activePlaybackMidis, setActivePlaybackMidis] = useState<Set<number>>(
     new Set()
@@ -473,7 +489,8 @@ export function ScorePreview({
     return notes
       .filter(
         (note) =>
-          rangeMeasures.has(note.measure) && isNoteForHand(note, rangeHand)
+          rangeMeasures.has(note.measure) &&
+          isNoteForRangeHand(note, rangeHand)
       )
       .sort(noteSort);
   }, [
@@ -507,7 +524,8 @@ export function ScorePreview({
   }, []);
   const startPlayback = useCallback(async (
     events: number[][],
-    mode: PlaybackMode
+    mode: PlaybackMode,
+    speed: number = 1
   ) => {
     if (playbackMode === mode) {
       stopPlayback();
@@ -526,52 +544,65 @@ export function ScorePreview({
     }
 
     const runId = playbackRunRef.current;
-    const contextNow = context.currentTime;
-    const startsAt = contextNow + 0.06;
     setPlaybackMode(mode);
 
-    events.forEach((midis, eventIndex) => {
-      const eventStartsAt = startsAt + eventIndex * PLAYBACK_STEP_SECONDS;
-      const duration =
-        eventIndex === events.length - 1
-          ? PLAYBACK_NOTE_SECONDS + 0.18
-          : PLAYBACK_NOTE_SECONDS;
-      midis.forEach((midi) => {
-        playbackOscillatorsRef.current.push(
-          ...schedulePianoTone(context, midi, eventStartsAt, duration)
-        );
+    const shouldLoop = mode === "range" && rangeLoopEnabled;
+    const stepSeconds = PLAYBACK_STEP_SECONDS / speed;
+    const noteSeconds = PLAYBACK_NOTE_SECONDS / speed;
+    const scheduleCycle = () => {
+      if (playbackRunRef.current !== runId) return;
+
+      const contextNow = context.currentTime;
+      const startsAt = contextNow + 0.06;
+      events.forEach((midis, eventIndex) => {
+        const eventStartsAt = startsAt + eventIndex * stepSeconds;
+        const duration =
+          eventIndex === events.length - 1
+            ? noteSeconds + 0.18 / speed
+            : noteSeconds;
+        midis.forEach((midi) => {
+          playbackOscillatorsRef.current.push(
+            ...schedulePianoTone(context, midi, eventStartsAt, duration)
+          );
+        });
+
+        const activeTimer = window.setTimeout(() => {
+          if (playbackRunRef.current === runId) {
+            setActivePlaybackMidis(new Set(midis));
+          }
+        }, Math.max(0, (eventStartsAt - contextNow) * 1000));
+        playbackTimersRef.current.push(activeTimer);
       });
 
-      const activeTimer = window.setTimeout(() => {
-        if (playbackRunRef.current === runId) {
-          setActivePlaybackMidis(new Set(midis));
+      const playbackEndsAt =
+        startsAt +
+        (events.length - 1) * stepSeconds +
+        noteSeconds +
+        0.2 / speed;
+      const finishTimer = window.setTimeout(() => {
+        if (playbackRunRef.current !== runId) return;
+        playbackOscillatorsRef.current = [];
+        playbackTimersRef.current = [];
+        setActivePlaybackMidis(new Set());
+        if (shouldLoop) {
+          scheduleCycle();
+        } else {
+          setPlaybackMode(null);
         }
-      }, Math.max(0, (eventStartsAt - contextNow) * 1000));
-      playbackTimersRef.current.push(activeTimer);
-    });
+      }, Math.max(0, (playbackEndsAt - contextNow) * 1000));
+      playbackTimersRef.current.push(finishTimer);
+    };
 
-    const playbackEndsAt =
-      startsAt +
-      (events.length - 1) * PLAYBACK_STEP_SECONDS +
-      PLAYBACK_NOTE_SECONDS +
-      0.2;
-    const finishTimer = window.setTimeout(() => {
-      if (playbackRunRef.current !== runId) return;
-      playbackOscillatorsRef.current = [];
-      playbackTimersRef.current = [];
-      setActivePlaybackMidis(new Set());
-      setPlaybackMode(null);
-    }, Math.max(0, (playbackEndsAt - contextNow) * 1000));
-    playbackTimersRef.current.push(finishTimer);
-  }, [playbackMode, stopPlayback]);
+    scheduleCycle();
+  }, [playbackMode, rangeLoopEnabled, stopPlayback]);
 
   const handlePlayback = useCallback(
     () => startPlayback(playbackEvents, "single"),
     [playbackEvents, startPlayback]
   );
   const handleRangePlayback = useCallback(
-    () => startPlayback(rangePlaybackEvents, "range"),
-    [rangePlaybackEvents, startPlayback]
+    () => startPlayback(rangePlaybackEvents, "range", rangePlaybackSpeed),
+    [rangePlaybackEvents, rangePlaybackSpeed, startPlayback]
   );
 
   useEffect(() => {
@@ -583,6 +614,8 @@ export function ScorePreview({
   }, [
     rangeEndMeasure,
     rangeHand,
+    rangeLoopEnabled,
+    rangePlaybackSpeed,
     rangeStartMeasure,
     stopPlayback
   ]);
@@ -705,7 +738,10 @@ export function ScorePreview({
   const highlightColor = PRACTICE_COLORS[selectedHand];
   const playbackHand =
     playbackMode === "range" ? rangeHand : selectedHand;
-  const playbackColor = PRACTICE_COLORS[playbackHand];
+  const playbackColor =
+    playbackHand === "both" ? "#2563eb" : PRACTICE_COLORS[playbackHand];
+  const rangeHandLabel =
+    rangeHand === "both" ? "双手" : rangeHand === "right" ? "右手" : "左手";
 
   useEffect(() => {
     let cancelled = false;
@@ -949,6 +985,15 @@ export function ScorePreview({
                 <Hand size={13} />
                 左手
               </button>
+              <button
+                className={rangeHand === "both" ? "is-active both" : ""}
+                type="button"
+                aria-label="范围播放：双手"
+                onClick={() => setRangeHand("both")}
+              >
+                <Hand size={13} />
+                双手
+              </button>
             </div>
             <div className="range-measure-fields">
               <label>
@@ -993,6 +1038,33 @@ export function ScorePreview({
                 </select>
               </label>
             </div>
+            <label className="range-speed-field">
+              <span>播放速度</span>
+              <select
+                aria-label="范围播放速度"
+                value={String(rangePlaybackSpeed)}
+                onChange={(event) =>
+                  setRangePlaybackSpeed(
+                    Number(event.target.value) as PlaybackSpeed
+                  )
+                }
+              >
+                <option value="0.3">x0.3</option>
+                <option value="0.5">x0.5</option>
+                <option value="0.7">x0.7</option>
+                <option value="1">x1.0</option>
+              </select>
+            </label>
+            <label className="range-loop-toggle">
+              <input
+                type="checkbox"
+                aria-label="范围播放自动循环"
+                checked={rangeLoopEnabled}
+                onChange={(event) => setRangeLoopEnabled(event.target.checked)}
+              />
+              <Repeat size={13} />
+              <span>自动循环</span>
+            </label>
             <button
               className={`range-play-button${playbackMode === "range" ? " is-playing" : ""}`}
               type="button"
@@ -1003,7 +1075,7 @@ export function ScorePreview({
               aria-label={
                 playbackMode === "range"
                   ? "停止范围播放"
-                  : `自动播放第 ${rangeStartMeasure} 至第 ${rangeEndMeasure} 小节${rangeHand === "right" ? "右手" : "左手"}音符`
+                  : `自动播放第 ${rangeStartMeasure} 至第 ${rangeEndMeasure} 小节${rangeHandLabel}音符`
               }
             >
               {playbackMode === "range" ? (

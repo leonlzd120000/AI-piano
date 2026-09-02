@@ -47,10 +47,25 @@ The included fixtures cover all three paths:
   multi-page MusicXML merging
 - `frontend/src`: React workbench and Verovio score rendering
 
-This demo intentionally does not use an LLM for pitch extraction. A language
-model is useful later for teaching explanations, fingering suggestions, music
-theory Q&A, and retrieval over a curriculum, but it should not replace
-deterministic score parsing.
+The note extraction and annotation path remains deterministic so that pitch
+labels and the annotated PDF can be verified. The model manager adds a runtime
+selector for the built-in parser and Google AI Studio Gemini models. Gemini
+models can be configured and connectivity-tested from the page; the active
+model is recorded on each run and is ready for future teaching explanations,
+fingering suggestions, music theory Q&A, and curriculum retrieval without
+replacing the verifiable score parser.
+
+To configure Google AI Studio without putting a key in the repository:
+
+```bash
+export GEMINI_API_KEY="your-google-ai-studio-api-key"
+export AI_PIANO_MODEL="gemini-3.6-flash"
+```
+
+Alternatively, open **模型管理** in the page, paste the key into the password
+field, choose a Gemini model, click **测试模型**, and then click **保存并启用**.
+Runtime configuration is held by the backend process; a key is never returned
+by the API or written to the frontend bundle.
 
 ## Run
 

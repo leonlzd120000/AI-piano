@@ -1,15 +1,19 @@
-import { Download, GitBranch, Music2 } from "lucide-react";
+import { BrainCircuit, Download, GitBranch, Music2 } from "lucide-react";
 
 interface HeaderProps {
   canDownload: boolean;
   downloadFormat: "PDF" | "MusicXML";
   onDownload: () => void;
+  modelName: string;
+  onManageModels: () => void;
 }
 
 export function Header({
   canDownload,
   downloadFormat,
-  onDownload
+  onDownload,
+  modelName,
+  onManageModels
 }: HeaderProps) {
   return (
     <header className="app-header">
@@ -24,6 +28,16 @@ export function Header({
       </div>
 
       <div className="header-actions">
+        <button
+          className="model-runtime-button"
+          type="button"
+          onClick={onManageModels}
+          aria-label="模型管理"
+          title={`当前模型：${modelName}`}
+        >
+          <BrainCircuit size={15} />
+          <span>{modelName}</span>
+        </button>
         <div className="runtime-status" title="LangGraph 工作流已连接">
           <GitBranch size={15} />
           <span className="status-dot" />

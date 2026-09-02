@@ -94,3 +94,22 @@ def test_agent_routes_image_through_omr(monkeypatch) -> None:
 
 def test_pdf_signature_is_validated() -> None:
     assert classify_score_input("score.pdf", b"%PDF-1.7\n") == "pdf"
+
+
+def test_agent_rejects_unconfigured_google_model(monkeypatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    result = score_agent.invoke(
+        {
+            "filename": SAMPLE.name,
+            "payload": SAMPLE.read_bytes(),
+            "model_id": "gemini-3.6-flash",
+            "options": AnnotationOptions(),
+            "steps": [],
+            "errors": [],
+        }
+    )
+
+    assert result["status"] == "failed"
+    assert result["errors"] == ["请先配置 Google AI Studio API Key"]
+    assert result["steps"][0]["id"] == "validate"

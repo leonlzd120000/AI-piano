@@ -14,6 +14,7 @@ from .musicxml import (
     count_agent_labels,
     extract_musicxml,
 )
+from .model_manager import active_model_id, validate_model_selection
 from .omr import InputKind, classify_score_input, convert_score_with_omr
 
 
@@ -21,6 +22,7 @@ class ScoreAgentState(TypedDict, total=False):
     filename: str
     payload: bytes
     options: AnnotationOptions
+    model_id: str
     input_kind: InputKind
     omr_musicxml: str
     omr_metadata: dict[str, Any]
@@ -54,14 +56,18 @@ def validate_upload(state: ScoreAgentState) -> ScoreAgentState:
             state.get("payload", b""),
         )
         state["options"].validate()
+        model_id = validate_model_selection(
+            state.get("model_id") or active_model_id()
+        )
         return {
             "input_kind": input_kind,
+            "model_id": model_id,
             "steps": [
                 _step(
                     "validate",
                     "文件校验",
                     "completed",
-                    f"已接收 {state['filename']}",
+                    f"已接收 {state['filename']} · 模型 {model_id}",
                     started,
                 )
             ]

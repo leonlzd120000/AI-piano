@@ -103,8 +103,8 @@ test("loads the sample score and reruns with octave labels", async ({ page }) =>
   expect(await page.locator(".piano-key.is-highlighted").count()).toBeGreaterThan(0);
   await expectPianoLabelsAligned(page);
 
-  const playButton = page.getByRole("button", {
-    name: /播放第 .* 小节右手音符/
+  const playButton = page.locator(".practice-play-button").filter({
+    hasText: "播放"
   });
   await expect(playButton).toBeEnabled();
   await playButton.click();
@@ -119,10 +119,46 @@ test("loads the sample score and reruns with octave labels", async ({ page }) =>
   await rangePlayer.getByRole("button", { name: "范围播放：左手" }).click();
   await rangePlayer.getByLabel("范围播放起始小节").selectOption("2");
   await rangePlayer.getByLabel("范围播放结束小节").selectOption("5");
+  const rangeSpeed = rangePlayer.getByLabel("范围播放速度");
+  await rangeSpeed.selectOption("0.5");
+  await expect(rangeSpeed).toHaveValue("0.5");
   const rangePlayButton = rangePlayer.getByRole("button", {
     name: "自动播放第 2 至第 5 小节左手音符"
   });
   await rangePlayButton.click();
+  await expect(
+    rangePlayer.getByRole("button", { name: "停止范围播放" })
+  ).toBeVisible();
+  await expect(page.locator(".piano-key.is-sounding")).not.toHaveCount(0);
+  await rangePlayer.getByRole("button", { name: "停止范围播放" }).click();
+
+  await rangePlayer.getByLabel("范围播放自动循环").check();
+  await expect(rangePlayer.getByLabel("范围播放自动循环")).toBeChecked();
+  await rangeSpeed.selectOption("1");
+  await rangePlayer.getByLabel("范围播放结束小节").selectOption("2");
+  const loopingRangePlayButton = rangePlayer.getByRole("button", {
+    name: "自动播放第 2 至第 2 小节左手音符"
+  });
+  await loopingRangePlayButton.click();
+  await expect(
+    rangePlayer.getByRole("button", { name: "停止范围播放" })
+  ).toBeVisible();
+  await page.waitForTimeout(1600);
+  await expect(
+    rangePlayer.getByRole("button", { name: "停止范围播放" })
+  ).toBeVisible();
+  await rangePlayer.getByRole("button", { name: "停止范围播放" }).click();
+  await rangePlayer.getByLabel("范围播放自动循环").uncheck();
+
+  await rangePlayer.getByRole("button", { name: "范围播放：双手" }).click();
+  await expect(
+    rangePlayer.getByRole("button", { name: "范围播放：双手" })
+  ).toHaveClass(/is-active/);
+  const bothHandsRangePlayButton = rangePlayer.getByRole("button", {
+    name: /自动播放第 2 至第 2 小节双手音符/
+  });
+  await expect(bothHandsRangePlayButton).toBeEnabled();
+  await bothHandsRangePlayButton.click();
   await expect(
     rangePlayer.getByRole("button", { name: "停止范围播放" })
   ).toBeVisible();
