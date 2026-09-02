@@ -1,5 +1,5 @@
-import { FileMusic, Hand, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { FileMusic, Hand, LoaderCircle, Play, Square } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ScoreNote } from "../types";
 import { PdfCanvasPreview } from "./PdfCanvasPreview";
 
@@ -21,6 +21,7 @@ const NOTE_COLORS: Record<string, string> = {
 };
 
 type PracticeHand = "right" | "left";
+type PlaybackMode = "single" | "range";
 
 const PRACTICE_COLORS: Record<PracticeHand, string> = {
   right: "#f59e0b",
@@ -34,6 +35,8 @@ const SCORE_HAND_COLORS: Record<PracticeHand, string> = {
 
 const BLACK_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]);
 const PITCH_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const PLAYBACK_STEP_SECONDS = 0.58;
+const PLAYBACK_NOTE_SECONDS = 0.76;
 
 interface PianoKey {
   midi: number;
@@ -82,6 +85,54 @@ function notePitchName(note: ScoreNote): string {
   if (!note.alter) return note.step;
   const accidental = note.alter > 0 ? "#" : "b";
   return `${note.step}${accidental.repeat(Math.abs(note.alter))}`;
+}
+
+function midiToFrequency(midi: number): number {
+  return 440 * 2 ** ((midi - 69) / 12);
+}
+
+function schedulePianoTone(
+  context: AudioContext,
+  midi: number,
+  startsAt: number,
+  duration: number
+): OscillatorNode[] {
+  const frequency = midiToFrequency(midi);
+  const envelope = context.createGain();
+  const filter = context.createBiquadFilter();
+  const oscillators: OscillatorNode[] = [];
+
+  envelope.gain.setValueAtTime(0.0001, startsAt);
+  envelope.gain.exponentialRampToValueAtTime(0.13, startsAt + 0.014);
+  envelope.gain.exponentialRampToValueAtTime(0.055, startsAt + 0.18);
+  envelope.gain.exponentialRampToValueAtTime(0.0001, startsAt + duration);
+
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(Math.min(5200, 1100 + frequency * 5), startsAt);
+  filter.Q.setValueAtTime(0.7, startsAt);
+  filter.connect(envelope);
+  envelope.connect(context.destination);
+
+  const partials: Array<[number, OscillatorType, number]> = [
+    [1, "triangle", 0.78],
+    [2, "sine", 0.16],
+    [3, "sine", 0.06]
+  ];
+
+  partials.forEach(([multiple, type, level]) => {
+    const oscillator = context.createOscillator();
+    const partialGain = context.createGain();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency * multiple, startsAt);
+    partialGain.gain.setValueAtTime(level, startsAt);
+    oscillator.connect(partialGain);
+    partialGain.connect(filter);
+    oscillator.start(startsAt);
+    oscillator.stop(startsAt + duration + 0.03);
+    oscillators.push(oscillator);
+  });
+
+  return oscillators;
 }
 
 function isNoteForHand(note: ScoreNote, hand: PracticeHand): boolean {
@@ -368,12 +419,32 @@ export function ScorePreview({
   );
   const [selectedMeasure, setSelectedMeasure] = useState("");
   const [selectedHand, setSelectedHand] = useState<PracticeHand>("right");
+  const [rangeHand, setRangeHand] = useState<PracticeHand>("right");
+  const [rangeStartMeasure, setRangeStartMeasure] = useState("");
+  const [rangeEndMeasure, setRangeEndMeasure] = useState("");
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode | null>(null);
+  const [activePlaybackMidis, setActivePlaybackMidis] = useState<Set<number>>(
+    new Set()
+  );
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const playbackOscillatorsRef = useRef<OscillatorNode[]>([]);
+  const playbackTimersRef = useRef<number[]>([]);
+  const playbackRunRef = useRef(0);
 
   useEffect(() => {
     if (!measures.includes(selectedMeasure)) {
       setSelectedMeasure(measures[0] ?? "");
     }
   }, [measures, selectedMeasure]);
+
+  useEffect(() => {
+    if (!measures.includes(rangeStartMeasure)) {
+      setRangeStartMeasure(measures[0] ?? "");
+    }
+    if (!measures.includes(rangeEndMeasure)) {
+      setRangeEndMeasure(measures[Math.min(3, measures.length - 1)] ?? "");
+    }
+  }, [measures, rangeEndMeasure, rangeStartMeasure]);
 
   const practiceNotes = useMemo(
     () =>
@@ -385,6 +456,153 @@ export function ScorePreview({
         )
         .sort(noteSort),
     [notes, selectedHand, selectedMeasure]
+  );
+  const playbackEvents = useMemo(
+    () =>
+      groupNotesByEvent(practiceNotes).map((group) =>
+        Array.from(new Set(group.map(noteToMidi)))
+      ),
+    [practiceNotes]
+  );
+  const rangePlaybackNotes = useMemo(() => {
+    const startIndex = measures.indexOf(rangeStartMeasure);
+    const endIndex = measures.indexOf(rangeEndMeasure);
+    if (startIndex < 0 || endIndex < startIndex) return [];
+
+    const rangeMeasures = new Set(measures.slice(startIndex, endIndex + 1));
+    return notes
+      .filter(
+        (note) =>
+          rangeMeasures.has(note.measure) && isNoteForHand(note, rangeHand)
+      )
+      .sort(noteSort);
+  }, [
+    measures,
+    notes,
+    rangeEndMeasure,
+    rangeHand,
+    rangeStartMeasure
+  ]);
+  const rangePlaybackEvents = useMemo(
+    () =>
+      groupNotesByEvent(rangePlaybackNotes).map((group) =>
+        Array.from(new Set(group.map(noteToMidi)))
+      ),
+    [rangePlaybackNotes]
+  );
+  const stopPlayback = useCallback(() => {
+    playbackRunRef.current += 1;
+    playbackTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    playbackTimersRef.current = [];
+    playbackOscillatorsRef.current.forEach((oscillator) => {
+      try {
+        oscillator.stop();
+      } catch {
+        // The oscillator may have already completed naturally.
+      }
+    });
+    playbackOscillatorsRef.current = [];
+    setActivePlaybackMidis(new Set());
+    setPlaybackMode(null);
+  }, []);
+  const startPlayback = useCallback(async (
+    events: number[][],
+    mode: PlaybackMode
+  ) => {
+    if (playbackMode === mode) {
+      stopPlayback();
+      return;
+    }
+    if (!events.length) return;
+
+    stopPlayback();
+    let context = audioContextRef.current;
+    if (!context || context.state === "closed") {
+      context = new AudioContext();
+      audioContextRef.current = context;
+    }
+    if (context.state === "suspended") {
+      await context.resume();
+    }
+
+    const runId = playbackRunRef.current;
+    const contextNow = context.currentTime;
+    const startsAt = contextNow + 0.06;
+    setPlaybackMode(mode);
+
+    events.forEach((midis, eventIndex) => {
+      const eventStartsAt = startsAt + eventIndex * PLAYBACK_STEP_SECONDS;
+      const duration =
+        eventIndex === events.length - 1
+          ? PLAYBACK_NOTE_SECONDS + 0.18
+          : PLAYBACK_NOTE_SECONDS;
+      midis.forEach((midi) => {
+        playbackOscillatorsRef.current.push(
+          ...schedulePianoTone(context, midi, eventStartsAt, duration)
+        );
+      });
+
+      const activeTimer = window.setTimeout(() => {
+        if (playbackRunRef.current === runId) {
+          setActivePlaybackMidis(new Set(midis));
+        }
+      }, Math.max(0, (eventStartsAt - contextNow) * 1000));
+      playbackTimersRef.current.push(activeTimer);
+    });
+
+    const playbackEndsAt =
+      startsAt +
+      (events.length - 1) * PLAYBACK_STEP_SECONDS +
+      PLAYBACK_NOTE_SECONDS +
+      0.2;
+    const finishTimer = window.setTimeout(() => {
+      if (playbackRunRef.current !== runId) return;
+      playbackOscillatorsRef.current = [];
+      playbackTimersRef.current = [];
+      setActivePlaybackMidis(new Set());
+      setPlaybackMode(null);
+    }, Math.max(0, (playbackEndsAt - contextNow) * 1000));
+    playbackTimersRef.current.push(finishTimer);
+  }, [playbackMode, stopPlayback]);
+
+  const handlePlayback = useCallback(
+    () => startPlayback(playbackEvents, "single"),
+    [playbackEvents, startPlayback]
+  );
+  const handleRangePlayback = useCallback(
+    () => startPlayback(rangePlaybackEvents, "range"),
+    [rangePlaybackEvents, startPlayback]
+  );
+
+  useEffect(() => {
+    stopPlayback();
+  }, [selectedHand, selectedMeasure, stopPlayback]);
+
+  useEffect(() => {
+    stopPlayback();
+  }, [
+    rangeEndMeasure,
+    rangeHand,
+    rangeStartMeasure,
+    stopPlayback
+  ]);
+
+  useEffect(
+    () => () => {
+      playbackRunRef.current += 1;
+      playbackTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      playbackOscillatorsRef.current.forEach((oscillator) => {
+        try {
+          oscillator.stop();
+        } catch {
+          // The oscillator may have already completed naturally.
+        }
+      });
+      if (audioContextRef.current?.state !== "closed") {
+        void audioContextRef.current?.close();
+      }
+    },
+    []
   );
   const handleHandChange = (nextHand: PracticeHand) => {
     setSelectedHand(nextHand);
@@ -457,7 +675,37 @@ export function ScorePreview({
 
     return Array.from(labels.values()).sort((a, b) => a.midi - b.midi);
   }, [orderByIndex, practiceNotes]);
+  const activePlaybackLabels = useMemo(() => {
+    const sourceNotes =
+      playbackMode === "range" ? rangePlaybackNotes : practiceNotes;
+    const labels = new Map<number, string>();
+
+    sourceNotes.forEach((note) => {
+      const midi = noteToMidi(note);
+      if (activePlaybackMidis.has(midi) && !labels.has(midi)) {
+        labels.set(midi, notePitchName(note));
+      }
+    });
+
+    activePlaybackMidis.forEach((midi) => {
+      if (!labels.has(midi)) {
+        labels.set(midi, PITCH_NAMES[midi % 12]);
+      }
+    });
+
+    return Array.from(labels, ([midi, name]) => ({ midi, name })).sort(
+      (a, b) => a.midi - b.midi
+    );
+  }, [
+    activePlaybackMidis,
+    playbackMode,
+    practiceNotes,
+    rangePlaybackNotes
+  ]);
   const highlightColor = PRACTICE_COLORS[selectedHand];
+  const playbackHand =
+    playbackMode === "range" ? rangeHand : selectedHand;
+  const playbackColor = PRACTICE_COLORS[playbackHand];
 
   useEffect(() => {
     let cancelled = false;
@@ -652,56 +900,198 @@ export function ScorePreview({
                 左手
               </button>
             </div>
+            <button
+              className={`practice-play-button${playbackMode === "single" ? " is-playing" : ""}`}
+              type="button"
+              disabled={!playbackEvents.length}
+              onClick={() => {
+                void handlePlayback();
+              }}
+              aria-label={
+                playbackMode === "single"
+                  ? "停止播放"
+                  : `播放第 ${selectedMeasure} 小节${selectedHand === "right" ? "右手" : "左手"}音符`
+              }
+            >
+              {playbackMode === "single" ? (
+                <Square size={13} />
+              ) : (
+                <Play size={14} />
+              )}
+              {playbackMode === "single" ? "停止" : "播放"}
+            </button>
           </div>
         </div>
 
-        <div className="piano-wrap">
-          <div className="piano-labels" aria-label="高亮琴键对应音符">
-            {pianoKeyLabels.map((label) => (
-              <span
-                className="piano-key-label"
-                data-midi={label.midi}
-                data-note={label.name}
-                key={label.midi}
-                title={`${label.name} · 第 ${label.orders.join("、")} 个音`}
-                style={{
-                  color: highlightColor,
-                  left: `${midiToKeyboardPosition(label.midi)}%`
-                }}
+        <div className="piano-stage">
+          <aside className="range-player" aria-label="范围自动播放">
+            <strong>范围播放</strong>
+            <div
+              className="range-hand-switch"
+              role="group"
+              aria-label="范围播放演奏手"
+            >
+              <button
+                className={rangeHand === "right" ? "is-active right" : ""}
+                type="button"
+                aria-label="范围播放：右手"
+                onClick={() => setRangeHand("right")}
               >
-                {label.name}
-              </span>
-            ))}
-          </div>
-          <div className="piano-keyboard" aria-label="88键钢琴键盘">
-            <div className="piano-white-keys">
-              {PIANO_KEYS.filter((key) => !key.isBlack).map((key) => (
-                <span
-                  className={`piano-key white${highlightedMidis.has(key.midi) ? ` is-highlighted ${selectedHand}` : ""}`}
-                  data-midi={key.midi}
-                  key={key.midi}
-                  title={key.name}
-                  style={
-                    highlightedMidis.has(key.midi)
-                      ? { backgroundColor: highlightColor }
-                      : undefined
-                  }
-                />
-              ))}
+                <Hand size={13} />
+                右手
+              </button>
+              <button
+                className={rangeHand === "left" ? "is-active left" : ""}
+                type="button"
+                aria-label="范围播放：左手"
+                onClick={() => setRangeHand("left")}
+              >
+                <Hand size={13} />
+                左手
+              </button>
             </div>
-            <div className="piano-black-keys">
-              {PIANO_KEYS.filter((key) => key.isBlack).map((key) => {
-                const left = ((key.whiteIndex + 1) / 52) * 100;
-                return (
+            <div className="range-measure-fields">
+              <label>
+                <span>从</span>
+                <select
+                  aria-label="范围播放起始小节"
+                  value={rangeStartMeasure}
+                  onChange={(event) => {
+                    const nextStart = event.target.value;
+                    setRangeStartMeasure(nextStart);
+                    if (
+                      measures.indexOf(rangeEndMeasure) <
+                      measures.indexOf(nextStart)
+                    ) {
+                      setRangeEndMeasure(nextStart);
+                    }
+                  }}
+                >
+                  {measures.map((measure) => (
+                    <option value={measure} key={`range-start-${measure}`}>
+                      第 {measure} 小节
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>到</span>
+                <select
+                  aria-label="范围播放结束小节"
+                  value={rangeEndMeasure}
+                  onChange={(event) => setRangeEndMeasure(event.target.value)}
+                >
+                  {measures.map((measure, index) => (
+                    <option
+                      value={measure}
+                      disabled={index < measures.indexOf(rangeStartMeasure)}
+                      key={`range-end-${measure}`}
+                    >
+                      第 {measure} 小节
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <button
+              className={`range-play-button${playbackMode === "range" ? " is-playing" : ""}`}
+              type="button"
+              disabled={!rangePlaybackEvents.length}
+              onClick={() => {
+                void handleRangePlayback();
+              }}
+              aria-label={
+                playbackMode === "range"
+                  ? "停止范围播放"
+                  : `自动播放第 ${rangeStartMeasure} 至第 ${rangeEndMeasure} 小节${rangeHand === "right" ? "右手" : "左手"}音符`
+              }
+            >
+              {playbackMode === "range" ? (
+                <Square size={13} />
+              ) : (
+                <Play size={14} />
+              )}
+              {playbackMode === "range" ? "停止" : "自动播放"}
+            </button>
+            <span className="range-note-count">
+              {rangePlaybackNotes.length} 个音符
+            </span>
+          </aside>
+
+          <div className="piano-wrap">
+            <div className="piano-labels" aria-label="高亮琴键对应音符">
+              {pianoKeyLabels.map((label) => (
+                <span
+                  className={`piano-key-label${activePlaybackMidis.has(label.midi) ? " is-sounding" : ""}`}
+                  data-midi={label.midi}
+                  data-note={label.name}
+                  key={label.midi}
+                  title={`${label.name} · 第 ${label.orders.join("、")} 个音`}
+                  style={{
+                    color: activePlaybackMidis.has(label.midi)
+                      ? playbackColor
+                      : highlightColor,
+                    left: `${midiToKeyboardPosition(label.midi)}%`
+                  }}
+                >
+                  {label.name}
+                </span>
+              ))}
+              {activePlaybackLabels
+                .filter(
+                  (activeLabel) =>
+                    !pianoKeyLabels.some(
+                      (label) => label.midi === activeLabel.midi
+                    )
+                )
+                .map((label) => (
                   <span
-                    className={`piano-key black${highlightedMidis.has(key.midi) ? ` is-highlighted ${selectedHand}` : ""}`}
+                    className="piano-key-label is-sounding"
+                    data-midi={label.midi}
+                    data-note={label.name}
+                    key={`active-${label.midi}`}
+                    title={`正在弹奏 ${label.name}`}
+                    style={{
+                      color: playbackColor,
+                      left: `${midiToKeyboardPosition(label.midi)}%`
+                    }}
+                  >
+                    {label.name}
+                  </span>
+                ))}
+            </div>
+            <div className="piano-keyboard" aria-label="88键钢琴键盘">
+              <div className="piano-white-keys">
+                {PIANO_KEYS.filter((key) => !key.isBlack).map((key) => (
+                  <span
+                    className={`piano-key white${highlightedMidis.has(key.midi) ? ` is-highlighted ${selectedHand}` : ""}${activePlaybackMidis.has(key.midi) ? ` is-sounding ${playbackHand}` : ""}`}
                     data-midi={key.midi}
                     key={key.midi}
                     title={key.name}
-                    style={{ left: `${left}%` }}
+                    style={
+                      activePlaybackMidis.has(key.midi)
+                        ? { backgroundColor: playbackColor }
+                        : highlightedMidis.has(key.midi)
+                        ? { backgroundColor: highlightColor }
+                        : undefined
+                    }
                   />
-                );
-              })}
+                ))}
+              </div>
+              <div className="piano-black-keys">
+                {PIANO_KEYS.filter((key) => key.isBlack).map((key) => {
+                  const left = ((key.whiteIndex + 1) / 52) * 100;
+                  return (
+                    <span
+                      className={`piano-key black${highlightedMidis.has(key.midi) ? ` is-highlighted ${selectedHand}` : ""}${activePlaybackMidis.has(key.midi) ? ` is-sounding ${playbackHand}` : ""}`}
+                      data-midi={key.midi}
+                      key={key.midi}
+                      title={key.name}
+                      style={{ left: `${left}%` }}
+                    />
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>

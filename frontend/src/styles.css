@@ -866,6 +866,7 @@ input:focus-visible {
 
 .practice-controls {
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -919,8 +920,171 @@ input:focus-visible {
   background: #def7f2;
 }
 
+.practice-play-button {
+  display: inline-flex;
+  min-height: 31px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid #cfd6e2;
+  border-radius: 5px;
+  padding: 4px 9px;
+  color: #344054;
+  background: #ffffff;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.practice-play-button:hover:not(:disabled) {
+  border-color: #98a2b3;
+  background: #f2f4f7;
+}
+
+.practice-play-button.is-playing {
+  color: #b42318;
+  border-color: #f4b4ae;
+  background: #fff4f2;
+}
+
+.practice-play-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.piano-stage {
+  display: grid;
+  min-width: 0;
+  align-items: end;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 10px;
+  padding-right: 232px;
+  padding-left: 204px;
+}
+
+.range-player {
+  display: flex;
+  min-width: 0;
+  min-height: 140px;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid #d8dee8;
+  border-radius: 6px;
+  padding: 9px;
+  background: #ffffff;
+}
+
+.range-player > strong {
+  color: #344054;
+  font-size: 11px;
+}
+
+.range-hand-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  border: 1px solid #d8dee8;
+  border-radius: 5px;
+  padding: 2px;
+  background: #f5f7fa;
+}
+
+.range-hand-switch button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 3px;
+  padding: 3px 4px;
+  color: #7d8797;
+  background: transparent;
+  font-size: 9px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.range-hand-switch button.is-active.right {
+  color: #9a5a00;
+  background: #fff1d6;
+}
+
+.range-hand-switch button.is-active.left {
+  color: #26766d;
+  background: #def7f2;
+}
+
+.range-measure-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.range-measure-fields label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  color: #7c8697;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.range-measure-fields select {
+  width: 100%;
+  min-width: 0;
+  min-height: 27px;
+  border: 1px solid #d8dee8;
+  border-radius: 4px;
+  padding: 3px 4px;
+  color: #354055;
+  background: #ffffff;
+  font-size: 9px;
+}
+
+.range-play-button {
+  display: inline-flex;
+  min-height: 29px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid #2563eb;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #ffffff;
+  background: #2563eb;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.range-play-button:hover:not(:disabled) {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+}
+
+.range-play-button.is-playing {
+  color: #b42318;
+  border-color: #f4b4ae;
+  background: #fff4f2;
+}
+
+.range-play-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.range-note-count {
+  color: #98a2b3;
+  font-size: 8px;
+  text-align: center;
+}
+
 .piano-wrap {
   position: relative;
+  min-width: 0;
   padding: 28px 4px 0;
 }
 
@@ -947,6 +1111,12 @@ input:focus-visible {
   white-space: nowrap;
   font-size: 9px;
   font-weight: 800;
+}
+
+.piano-key-label.is-sounding {
+  z-index: 2;
+  transform: translateX(-50%) translateY(-2px) scale(1.18);
+  box-shadow: 0 2px 7px rgb(15 23 42 / 14%);
 }
 
 .piano-keyboard {
@@ -996,6 +1166,12 @@ input:focus-visible {
     inset 0 0 0 2px #4aa99d;
 }
 
+.piano-key.white.is-sounding {
+  z-index: 1;
+  transform: translateY(3px);
+  filter: brightness(0.92) saturate(1.2);
+}
+
 .piano-black-keys {
   position: absolute;
   inset: 0;
@@ -1034,6 +1210,26 @@ input:focus-visible {
   box-shadow:
     0 3px 4px rgb(15 23 42 / 30%),
     inset 0 -1px 0 #4aa99d;
+}
+
+.piano-key.black.is-sounding {
+  height: 64%;
+  transform: translateX(-50%) translateY(3px);
+  filter: brightness(1.28) saturate(1.18);
+}
+
+.piano-key.black.is-sounding.right {
+  border-color: #c87900;
+  background:
+    linear-gradient(180deg, #111827 0 68%, #f59e0b 68% 100%),
+    linear-gradient(90deg, #111827, #303846 48%, #111827);
+}
+
+.piano-key.black.is-sounding.left {
+  border-color: #4aa99d;
+  background:
+    linear-gradient(180deg, #111827 0 68%, #8bd8cc 68% 100%),
+    linear-gradient(90deg, #111827, #303846 48%, #111827);
 }
 
 .practice-sequence {
@@ -1102,6 +1298,11 @@ input:focus-visible {
   .practice-panel {
     right: 18px;
     left: 18px;
+  }
+
+  .piano-stage {
+    padding-right: 0;
+    padding-left: 218px;
   }
 
   .run-header {
@@ -1198,6 +1399,18 @@ input:focus-visible {
     padding: 12px 10px 7px;
   }
 
+  .piano-stage {
+    min-width: 620px;
+    grid-template-columns: 142px minmax(460px, 1fr);
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .range-player {
+    min-height: 116px;
+    padding: 7px;
+  }
+
   .practice-header {
     align-items: flex-start;
     flex-direction: column;
@@ -1207,7 +1420,11 @@ input:focus-visible {
 
   .practice-controls {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
+  }
+
+  .practice-play-button {
+    margin-left: auto;
   }
 
   .piano-keyboard {

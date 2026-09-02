@@ -97,12 +97,42 @@ test("loads the sample score and reruns with octave labels", async ({ page }) =>
     page.getByText(/组标注均已写入 MusicXML，\d+\/\d+ 个识别音符已写入原版式 PDF/)
   ).toBeVisible();
   await expect(page.getByText("小节练习")).toBeVisible();
-  await expect(page.getByRole("button", { name: "右手" })).toHaveClass(/is-active/);
+  await expect(
+    page.getByRole("button", { name: "右手", exact: true })
+  ).toHaveClass(/is-active/);
   expect(await page.locator(".piano-key.is-highlighted").count()).toBeGreaterThan(0);
   await expectPianoLabelsAligned(page);
 
-  await page.getByRole("button", { name: "左手" }).click();
-  await expect(page.getByRole("button", { name: "左手" })).toHaveClass(/is-active/);
+  const playButton = page.getByRole("button", {
+    name: /播放第 .* 小节右手音符/
+  });
+  await expect(playButton).toBeEnabled();
+  await playButton.click();
+  await expect(page.getByRole("button", { name: "停止播放" })).toBeVisible();
+  await expect(page.locator(".piano-key.is-sounding")).not.toHaveCount(0);
+  await page.getByRole("button", { name: "停止播放" }).click();
+  await expect(page.locator(".piano-key.is-sounding")).toHaveCount(0);
+  await expect(playButton).toBeVisible();
+
+  const rangePlayer = page.locator(".range-player");
+  await expect(rangePlayer).toBeVisible();
+  await rangePlayer.getByRole("button", { name: "范围播放：左手" }).click();
+  await rangePlayer.getByLabel("范围播放起始小节").selectOption("2");
+  await rangePlayer.getByLabel("范围播放结束小节").selectOption("5");
+  const rangePlayButton = rangePlayer.getByRole("button", {
+    name: "自动播放第 2 至第 5 小节左手音符"
+  });
+  await rangePlayButton.click();
+  await expect(
+    rangePlayer.getByRole("button", { name: "停止范围播放" })
+  ).toBeVisible();
+  await expect(page.locator(".piano-key.is-sounding")).not.toHaveCount(0);
+  await rangePlayer.getByRole("button", { name: "停止范围播放" }).click();
+
+  await page.getByRole("button", { name: "左手", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "左手", exact: true })
+  ).toHaveClass(/is-active/);
   expect(await page.locator(".piano-key.is-highlighted").count()).toBeGreaterThan(0);
   await expectPianoLabelsAligned(page);
 

@@ -98,6 +98,17 @@ npm run test:e2e
 The end-to-end suite uploads MusicXML, PNG, and PDF fixtures through the real
 browser and backend. The first OMR run can be slower while models initialize.
 
+## Development Convention
+
+After every feature change or bug fix:
+
+1. Run the relevant build and tests.
+2. Start or restart the frontend and backend development services as needed.
+3. Open the frontend directly in the browser for visual preview.
+
+The standard preview URL is `http://localhost:5176/`. If that port is occupied,
+use the next available port and report the new URL.
+
 ## GitHub Pages
 
 The frontend is deployed automatically by
